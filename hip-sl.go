@@ -2067,6 +2067,6 @@ func (ss *Sim) CmdArgs() {
 	}
 	fmt.Printf("Running %d Runs\n", ss.MaxRuns)
 	ss.Train()
-	fnm := ss.LogFileName("runs")
-	ss.RunStats.SaveCSV(gi.FileName(fnm), etable.Tab, etable.Headers)
+	//fnm := ss.LogFileName("runs")
+	//ss.RunStats.SaveCSV(gi.FileName(fnm), etable.Tab, etable.Headers)
 }
