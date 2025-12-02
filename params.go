@@ -169,7 +169,7 @@ var SavedParamsSets = params.Sets{
 		"Sim": &params.Sheet{
 			{Sel: "Sim", Desc: "best params always finish in this time",
 				Params: params.Params{
-					"Sim.MaxEpcs": "10",
+					//"Sim.MaxEpcs": "12",
 					//"Sim.MaxRuns": "1",
 				}},
 		},

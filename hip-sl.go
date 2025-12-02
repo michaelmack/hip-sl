@@ -9,7 +9,6 @@ import (
 	"encoding/csv"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"math/rand"
 	"os"
@@ -71,6 +70,11 @@ type Sim struct {
 	TestAB       *etable.Table     `view:"no-inline" desc:"AB testing patterns to use"`
 	TestAC       *etable.Table     `view:"no-inline" desc:"AC testing patterns to use"`
 	TestLure     *etable.Table     `view:"no-inline" desc:"Lure testing patterns to use"`
+	TrainLB_e    *etable.Table     `view:"no-inline" desc:"LB early training patterns to use"`
+	TrainLB1_l   *etable.Table     `view:"no-inline" desc:"LB1 late training patterns to use"`
+	TrainLB2_l   *etable.Table     `view:"no-inline" desc:"LB2 late training patterns to use"`
+	TrainLB3_l   *etable.Table     `view:"no-inline" desc:"LB3 late training patterns to use"`
+	TestNF       *etable.Table     `view:"no-inline" desc:"testing patterns to use"`
 	TrnTrlLog    *etable.Table     `view:"no-inline" desc:"training trial-level log data"`
 	TrnEpcLog    *etable.Table     `view:"no-inline" desc:"training epoch-level log data"`
 	TstEpcLog    *etable.Table     `view:"no-inline" desc:"testing epoch-level log data"`
@@ -82,6 +86,7 @@ type Sim struct {
 	Params       params.Sets       `view:"no-inline" desc:"full collection of param sets"`
 	ParamSet     string            `desc:"which set of *additional* parameters to use -- always applies Base and optionaly this next if set"`
 	Tag          string            `desc:"extra tag string to add to any file names output from sim (e.g., weights files, log files, params)"`
+	Lesion       string            `desc:"perform a lesion to the network -- values are tsp or msp, defaults to none"`
 	MaxRuns      int               `desc:"maximum number of model runs to perform"`
 	MaxEpcs      int               `desc:"maximum number of epochs to run per model run"`
 	TrialperEpc  int               `desc:"number of trials per epoch of training"`
@@ -166,6 +171,11 @@ func (ss *Sim) New() {
 	ss.TestAB = &etable.Table{}
 	ss.TestAC = &etable.Table{}
 	ss.TestLure = &etable.Table{}
+	ss.TrainLB_e = &etable.Table{}
+	ss.TrainLB1_l = &etable.Table{}
+	ss.TrainLB2_l = &etable.Table{}
+	ss.TrainLB3_l = &etable.Table{}
+	ss.TestNF = &etable.Table{}
 	ss.TrnTrlLog = &etable.Table{}
 	ss.TrnEpcLog = &etable.Table{}
 	ss.TstEpcLog = &etable.Table{}
@@ -185,8 +195,8 @@ func (ss *Sim) New() {
 	ss.LayStatNms = []string{"ECin", "DG", "CA3", "CA1"}
 	ss.TstNms = []string{"AB", "AC", "Lure"}
 	ss.TstStatNms = []string{"Mem", "TrgOnWasOff", "TrgOffWasOn"}
-	ss.MaxEpcs = 10
-	ss.TrialperEpc = 80
+	ss.MaxEpcs = 3
+	ss.TrialperEpc = 28
 	// ss.ACon = 0
 }
 
@@ -208,7 +218,7 @@ func (ss *Sim) Config() {
 
 func (ss *Sim) ConfigEnv() {
 	if ss.MaxRuns == 0 { // allow user override
-		ss.MaxRuns = 10
+		ss.MaxRuns = 2
 	}
 	if ss.MaxEpcs == 0 { // allow user override
 		ss.MaxEpcs = 12
@@ -217,7 +227,11 @@ func (ss *Sim) ConfigEnv() {
 
 	ss.TrainEnv.Nm = "TrainEnv"
 	ss.TrainEnv.Dsc = "training params and state"
-	ss.TrainEnv.Table = etable.NewIdxView(ss.TrainAB)
+	if ss.Tag == "late" {
+		ss.TrainEnv.Table = etable.NewIdxView(ss.TrainLB1_l)
+	} else {
+		ss.TrainEnv.Table = etable.NewIdxView(ss.TrainLB_e)
+	}
 	ss.TrainEnv.Validate()
 	ss.TrainEnv.Run.Max = ss.MaxRuns // note: we are not setting epoch max -- do that manually
 	ss.TrainEnv.Sequential = false
@@ -226,7 +240,7 @@ func (ss *Sim) ConfigEnv() {
 
 	ss.TestEnv.Nm = "TestEnv"
 	ss.TestEnv.Dsc = "testing params and state"
-	ss.TestEnv.Table = etable.NewIdxView(ss.TestAB)
+	ss.TestEnv.Table = etable.NewIdxView(ss.TestNF)
 	ss.TestEnv.Sequential = true
 	ss.TestEnv.Validate()
 
@@ -236,19 +250,19 @@ func (ss *Sim) ConfigEnv() {
 
 // SetEnv select which set of patterns to train on: AB or AC
 func (ss *Sim) SetEnv(trainAC bool) {
-	if trainAC {
-		ss.TrainEnv.Table = etable.NewIdxView(ss.TrainAC)
-	} else {
-		ss.TrainEnv.Table = etable.NewIdxView(ss.TrainAB)
-	}
-	ss.TrainEnv.Init(0)
+	//if trainAC {
+	//ss.TrainEnv.Table = etable.NewIdxView(ss.TrainAC)
+	//} else {
+	//ss.TrainEnv.Table = etable.NewIdxView(ss.TrainAB)
+	//}
+	//ss.TrainEnv.Init(0)
 }
 
 func (ss *Sim) ConfigNet(net *leabra.Network) {
 	net.InitName(net, "Hip")
-	in := net.AddLayer2D("Input", 12, 1, emer.Input)
-	ecin := net.AddLayer2D("ECin", 12, 1, emer.Hidden)
-	ecout := net.AddLayer2D("ECout", 12, 1, emer.Target) // clamped in plus phase
+	in := net.AddLayer2D("Input", 10, 1, emer.Input)
+	ecin := net.AddLayer2D("ECin", 10, 1, emer.Hidden)
+	ecout := net.AddLayer2D("ECout", 10, 1, emer.Target) // clamped in plus phase
 	ca1 := net.AddLayer2D("CA1", 10, 10, emer.Hidden)
 	dg := net.AddLayer2D("DG", 20, 20, emer.Hidden)
 	ca3 := net.AddLayer2D("CA3", 8, 10, emer.Hidden)
@@ -411,13 +425,31 @@ func (ss *Sim) AlphaCyc(train bool) {
 	// First Quarter: CA1 is driven by ECin, not by CA3 recall
 	// (which is not really active yet anyway)
 	if train {
-		ca1FmECin.WtScale.Abs = 1
-		ca1FmCa3.WtScale.Abs = 0
+		switch ss.Lesion {
+		case "tsp":
+			ca1FmECin.WtScale.Abs = 1
+			ca1FmCa3.WtScale.Abs = 0
+		case "msp":
+			ca1FmECin.WtScale.Abs = 0
+			ca1FmCa3.WtScale.Abs = 0
+		default:
+			ca1FmECin.WtScale.Abs = 1
+			ca1FmCa3.WtScale.Abs = 0
+		}
 	}
 
 	if !train {
-		ca1FmECin.WtScale.Abs = 3
-		ca1FmCa3.WtScale.Abs = 1
+		switch ss.Lesion {
+		case "tsp":
+			ca1FmECin.WtScale.Abs = 3
+			ca1FmCa3.WtScale.Abs = 0
+		case "msp":
+			ca1FmECin.WtScale.Abs = 0
+			ca1FmCa3.WtScale.Abs = 1
+		default:
+			ca1FmECin.WtScale.Abs = 3
+			ca1FmCa3.WtScale.Abs = 1
+		}
 	}
 
 	ss.Net.AlphaCycInit(train)
@@ -462,16 +494,34 @@ func (ss *Sim) AlphaCyc(train bool) {
 		switch qtr + 1 {
 		case 1: // Second, Third Quarters: CA1 is driven by CA3 recall
 			if train {
-				ca1FmECin.WtScale.Abs = 0
-				ca1FmCa3.WtScale.Abs = 1
+				switch ss.Lesion {
+				case "tsp":
+					ca1FmECin.WtScale.Abs = 0
+					ca1FmCa3.WtScale.Abs = 0
+				case "msp":
+					ca1FmECin.WtScale.Abs = 0
+					ca1FmCa3.WtScale.Abs = 1
+				default:
+					ca1FmECin.WtScale.Abs = 0
+					ca1FmCa3.WtScale.Abs = 1
+				}
 				ss.Net.GScaleFmAvgAct() // update computed scaling factors
 				ss.Net.InitGInc()       // scaling params change, so need to recompute all netins
 			}
 
 		case 3: // Fourth Quarter: CA1 back to ECin drive only
 			if train {
-				ca1FmECin.WtScale.Abs = 3
-				ca1FmCa3.WtScale.Abs = 0
+				switch ss.Lesion {
+				case "tsp":
+					ca1FmECin.WtScale.Abs = 3
+					ca1FmCa3.WtScale.Abs = 0
+				case "msp":
+					ca1FmECin.WtScale.Abs = 0
+					ca1FmCa3.WtScale.Abs = 0
+				default:
+					ca1FmECin.WtScale.Abs = 3
+					ca1FmCa3.WtScale.Abs = 0
+				}
 				ss.Net.GScaleFmAvgAct() // update computed scaling factors
 				ss.Net.InitGInc()       // scaling params change, so need to recompute all netins
 			}
@@ -515,51 +565,51 @@ func (ss *Sim) AlphaCyc(train bool) {
 	if !train {
 		//t := time.Now()
 		//tfor := t.Format("2006_01_02_0304")
-		dirpathacts := ("output\\" + "outputacts" + "\\" + "tstacts" + fmt.Sprint(ss.DirSeed) + "_runs_" + fmt.Sprint(ss.MaxRuns))
+		dirpathacts := ("output/" + "outputacts" + "/" + "tstacts_" + fmt.Sprint(ss.Tag) + "_" + fmt.Sprint(ss.Lesion) + "_runs_" + fmt.Sprint(ss.MaxRuns))
 
 		if _, err := os.Stat(dirpathacts); os.IsNotExist(err) {
 			os.MkdirAll(dirpathacts, os.ModePerm)
 		}
 		// copying params.go to better track params associated with the run data
-		paramsdata, err := ioutil.ReadFile("params.go")
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
+		//paramsdata, err := ioutil.ReadFile("params.go")
+		//if err != nil {
+		//	fmt.Println(err)
+		//	return
+		//}
 
-		err = ioutil.WriteFile(dirpathacts+"\\"+"tstacts"+fmt.Sprint(ss.DirSeed)+"_"+"runs_"+fmt.Sprint(ss.MaxRuns)+"params.go", paramsdata, 0644)
-		if err != nil {
-			fmt.Println("Error creating", dirpathacts+"\\"+fmt.Sprint(ss.DirSeed)+"_"+"params.go")
-			fmt.Println(err)
-			return
-		}
+		//err = ioutil.WriteFile(dirpathacts+"\\"+"tstacts"+fmt.Sprint(ss.DirSeed)+"_"+"runs_"+fmt.Sprint(ss.MaxRuns)+"params.go", paramsdata, 0644)
+		//if err != nil {
+		//	fmt.Println("Error creating", dirpathacts+"\\"+fmt.Sprint(ss.DirSeed)+"_"+"params.go")
+		//	fmt.Println(err)
+		//	return
+		//}
 
-		mainfile, err := ioutil.ReadFile("hip-sl.go")
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
+		//mainfile, err := ioutil.ReadFile("hip-sl.go")
+		//if err != nil {
+		//	fmt.Println(err)
+		//	return
+		//}
 
-		err = ioutil.WriteFile(dirpathacts+"\\"+"tstacts"+fmt.Sprint(ss.DirSeed)+"_"+"runs_"+fmt.Sprint(ss.MaxRuns)+"hip-sl.go", mainfile, 0644)
-		if err != nil {
-			fmt.Println("Error creating", dirpathacts+"\\"+fmt.Sprint(ss.DirSeed)+"_"+"params.go")
-			fmt.Println(err)
-			return
-		}
+		//err = ioutil.WriteFile(dirpathacts+"\\"+"tstacts"+fmt.Sprint(ss.DirSeed)+"_"+"runs_"+fmt.Sprint(ss.MaxRuns)+"hip-sl.go", mainfile, 0644)
+		//if err != nil {
+		//	fmt.Println("Error creating", dirpathacts+"\\"+fmt.Sprint(ss.DirSeed)+"_"+"params.go")
+		//	fmt.Println(err)
+		//	return
+		//}
 
-		filew, _ := os.OpenFile(dirpathacts+"\\"+"tstacts"+fmt.Sprint(ss.RndSeed)+"_"+"run"+fmt.Sprint(ss.TrainEnv.Run.Cur)+"epoch"+fmt.Sprint(ss.TrainEnv.Epoch.Cur)+".csv", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		filew, _ := os.OpenFile(dirpathacts+"/"+"tstacts_"+fmt.Sprint(ss.RndSeed)+"_"+"run"+fmt.Sprint(ss.TrainEnv.Run.Cur)+"epoch"+fmt.Sprint(ss.TrainEnv.Epoch.Cur)+".csv", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		defer filew.Close()
 		writerw := csv.NewWriter(filew)
 		defer writerw.Flush()
 
-		if ss.TestEnv.TrialName.Cur == "A" { //need to change
+		if ss.TestEnv.Trial.Cur == 0 { //need to change
 			headers := []string{"Run", "Epoch", "Cycle", "TrialName"}
 
-			for i := 0; i < 12; i++ {
+			for i := 0; i < 10; i++ {
 				str := "Ecin_" + fmt.Sprint(i)
 				headers = append(headers, str)
 			}
-			for i := 0; i < 12; i++ {
+			for i := 0; i < 10; i++ {
 				str := "Ecout_" + fmt.Sprint(i)
 				headers = append(headers, str)
 			}
@@ -628,10 +678,20 @@ func (ss *Sim) ApplyInputs(en env.Env) {
 // TrainTrial runs one trial of training using TrainEnv
 func (ss *Sim) TrainTrial() {
 
-	// DS: Added to have  testing epoch before first epoch of training
 	if ss.TrainEnv.Epoch.Cur == 0 && ss.TrainEnv.Trial.Cur == 0 {
-		ss.TestAll()
+		ss.TrainEnv.Sequential = true
+		ss.TrainEnv.Table.Sequential()
+		fmt.Printf("here: %v\n", ss.TrainEnv.Table.Idxs)
+	} else if ss.TrainEnv.Epoch.Cur > 0 && ss.TrainEnv.Trial.Cur == 0 {
+		ss.TrainEnv.Sequential = false
+		ss.TrainEnv.Table.Permuted()
+		fmt.Printf("there: %v\n", ss.TrainEnv.Table.Idxs)
 	}
+
+	// DS: Added to have  testing epoch before first epoch of training
+	//if ss.TrainEnv.Epoch.Cur == 0 && ss.TrainEnv.Trial.Cur == 0 {
+	//ss.TestAll()
+	//}
 
 	if ss.NeedsNewRun {
 		ss.NewRun()
@@ -649,6 +709,17 @@ func (ss *Sim) TrainTrial() {
 		}
 		if ss.TestInterval > 0 && epc%ss.TestInterval == 0 { // note: epc is *next* so won't trigger first time
 			ss.TestAll()
+		}
+
+		if ss.Tag == "late" {
+			if epc == 3 {
+				ss.TrainEnv.Table = etable.NewIdxView(ss.TrainLB2_l)
+				ss.TrainEnv.Table.Permuted()
+			}
+			if epc == 6 {
+				ss.TrainEnv.Table = etable.NewIdxView(ss.TrainLB3_l)
+				ss.TrainEnv.Table.Permuted()
+			}
 		}
 
 		learned := (ss.NZeroStop > 0 && ss.NZero >= ss.NZeroStop)
@@ -689,7 +760,7 @@ func (ss *Sim) RunEnd() {
 // for the new run value
 func (ss *Sim) NewRun() {
 	run := ss.TrainEnv.Run.Cur
-	ss.TrainEnv.Table = etable.NewIdxView(ss.TrainAB)
+	//ss.TrainEnv.Table = etable.NewIdxView(ss.TrainAB)
 	ss.TrainEnv.Init(run)
 	ss.TestEnv.Init(run)
 	ss.Time.Reset()
@@ -931,7 +1002,7 @@ func (ss *Sim) TestItem(idx int) {
 // TestAll runs through the full set of testing items
 func (ss *Sim) TestAll() {
 	ss.TestNm = "AB"
-	ss.TestEnv.Table = etable.NewIdxView(ss.TestAB)
+	//ss.TestEnv.Table = etable.NewIdxView(ss.TestAB)
 	ss.TestEnv.Init(ss.TrainEnv.Run.Cur)
 	for {
 		ss.TestTrial(true) // return on chg
@@ -1044,9 +1115,11 @@ func (ss *Sim) OpenPats() {
 	// patgen.ReshapeCppFile(ss.TestAC, "Test_AC.dat", "TestAC.dat")
 	// patgen.ReshapeCppFile(ss.TestLure, "Lure.dat", "TestLure.dat")
 
-	ss.OpenPat(ss.TrainAB, "Train_pairs_go.dat", "AB Training Patterns", "AB Training Patterns")
-	ss.OpenPat(ss.TrainAC, "Train_pairs_without_transitions_go.dat", "AC Training Patterns", "AC Training Patterns")
-	ss.OpenPat(ss.TestAB, "Test_pairs_go.dat", "AB Testing Patterns", "AB Testing Patterns")
+	ss.OpenPat(ss.TrainLB_e, "train_early_LB.txt", "early training patterns", "early training patterns")
+	ss.OpenPat(ss.TrainLB1_l, "train_late_LB1.txt", "late 1 training patterns", "early training patterns")
+	ss.OpenPat(ss.TrainLB2_l, "train_late_LB2.txt", "late 2 training patterns", "early training patterns")
+	ss.OpenPat(ss.TrainLB3_l, "train_late_LB3.txt", "late 3 training patterns", "early training patterns")
+	ss.OpenPat(ss.TestNF, "test_NF.txt", "testing patterns", "testing patterns")
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////
@@ -1947,12 +2020,13 @@ func (ss *Sim) CmdArgs() {
 	flag.StringVar(&ss.ParamSet, "params", "", "ParamSet name to use -- must be valid name as listed in compiled-in params or loaded params")
 	flag.StringVar(&ss.Tag, "tag", "", "extra tag to add to file names saved from this run")
 	flag.StringVar(&note, "note", "", "user note -- describe the run params etc")
-	flag.IntVar(&ss.MaxRuns, "runs", 50, "number of runs to do (note that MaxEpcs is in paramset)")
-	flag.IntVar(&ss.MaxEpcs, "epcs", 10, "maximum number of epochs to run (split between AB / AC)")
+	flag.StringVar(&ss.Lesion, "lesion", "intact", "lesion to apply -- values are tsp or msp, defaults to none")
+	flag.IntVar(&ss.MaxRuns, "runs", 20, "number of runs to do (note that MaxEpcs is in paramset)")
+	flag.IntVar(&ss.MaxEpcs, "epcs", 12, "maximum number of epochs to run (split between AB / AC)")
 	flag.BoolVar(&ss.LogSetParams, "setparams", false, "if true, print a record of each parameter that is set")
 	flag.BoolVar(&ss.SaveWts, "wts", false, "if true, save final weights after each run")
-	flag.BoolVar(&saveEpcLog, "epclog", true, "if true, save train epoch log to file")
-	flag.BoolVar(&saveRunLog, "runlog", true, "if true, save run epoch log to file")
+	flag.BoolVar(&saveEpcLog, "epclog", false, "if true, save train epoch log to file")
+	flag.BoolVar(&saveRunLog, "runlog", false, "if true, save run epoch log to file")
 	flag.BoolVar(&nogui, "nogui", true, "if not passing any other args and want to run nogui, use nogui")
 	flag.Parse()
 	ss.Init()
